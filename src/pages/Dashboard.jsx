@@ -1,14 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../db';
-import { Plus, Search, Trash2, Edit2, Milk, LogOut, ChevronRight, Users } from 'lucide-react';
+import { Plus, Search, Trash2, Edit2, Milk, LogOut, ChevronRight, Users, Settings, X, Eye, EyeOff, BarChart2 } from 'lucide-react';
 
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 export default function Dashboard({ onLogout }) {
   const [customers, setCustomers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editCustomer, setEditCustomer] = useState(null);
   const [form, setForm] = useState({ name: '', rate: '', fixedFat: '' });
+
+
+
+  // Settings / Change PIN
+  const [showSettings, setShowSettings] = useState(false);
+  const [pinForm, setPinForm] = useState({ current: '', newPin: '', confirm: '' });
+  const [pinError, setPinError] = useState('');
+  const [pinSuccess, setPinSuccess] = useState('');
+  const [showPins, setShowPins] = useState({ current: false, newPin: false, confirm: false });
 
   useEffect(() => { loadCustomers(); }, []);
 
@@ -28,8 +38,7 @@ export default function Dashboard({ onLogout }) {
   };
 
   const openEdit = (customer, e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     setEditCustomer(customer);
     setForm({ name: customer.name, rate: String(customer.rate), fixedFat: String(customer.fixedFat) });
     setShowModal(true);
@@ -52,74 +61,69 @@ export default function Dashboard({ onLogout }) {
   };
 
   const handleDelete = async (id, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (window.confirm('Delete this customer and all their entries?')) {
+    e.preventDefault(); e.stopPropagation();
+    if (window.confirm('Delete this customer and all their data?')) {
       await db.customers.delete(id);
       await db.milkEntries.where({ customerId: id }).delete();
       loadCustomers();
     }
   };
 
+  const handleChangePin = async (e) => {
+    e.preventDefault();
+    setPinError(''); setPinSuccess('');
+    const user = await db.users.where({ pin: pinForm.current }).first();
+    if (!user) return setPinError('Current PIN is incorrect.');
+    if (pinForm.newPin.length < 4) return setPinError('New PIN must be at least 4 digits.');
+    if (pinForm.newPin !== pinForm.confirm) return setPinError('New PINs do not match.');
+    await db.users.update(user.id, { pin: pinForm.newPin });
+    setPinSuccess('PIN changed successfully!');
+    setPinForm({ current: '', newPin: '', confirm: '' });
+  };
+
   const getInitials = (name) => name.trim().slice(0, 2).toUpperCase();
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-bg)' }}>
-      {/* Navbar */}
       <nav className="navbar">
         <div className="navbar-brand">
-          <div className="navbar-logo">
-            <Milk size={18} color="white" />
-          </div>
+          <div className="navbar-logo"><Milk size={18} color="white" /></div>
           MILKLEDGER
         </div>
-        <div className="flex items-center gap-3">
-          <span className="badge">
-            <Users size={12} className="mr-1" />
-            {customers.length} Customer{customers.length !== 1 ? 's' : ''}
-          </span>
-          <button onClick={onLogout} className="btn-icon" title="Logout">
-            <LogOut size={16} />
+        <div className="flex items-center gap-2">
+          <span className="badge"><Users size={12} style={{ marginRight: 4 }} />{customers.length} Customer{customers.length !== 1 ? 's' : ''}</span>
+          <Link to="/summary" className="btn-icon" title="Monthly Summary">
+            <BarChart2 size={16} />
+          </Link>
+          <button onClick={() => { setShowSettings(true); setPinError(''); setPinSuccess(''); }} className="btn-icon" title="Settings">
+            <Settings size={16} />
           </button>
+          <button onClick={onLogout} className="btn-icon" title="Logout"><LogOut size={16} /></button>
         </div>
       </nav>
 
       <div className="page-wrap" style={{ paddingTop: '1.5rem' }}>
-        {/* Header */}
         <div className="flex items-center justify-between mb-6" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
             <h1 className="font-black text-3xl" style={{ letterSpacing: '-0.01em' }}>Customers</h1>
             <p className="text-muted text-sm mt-1">Select a customer to enter milk data</p>
           </div>
-          <button onClick={openAdd} className="btn btn-primary">
-            <Plus size={18} /> Add Customer
-          </button>
+          <button onClick={openAdd} className="btn btn-primary"><Plus size={18} /> Add Customer</button>
         </div>
 
-        {/* Search */}
         <div className="relative mb-6" style={{ maxWidth: '420px' }}>
           <Search size={16} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-          <input
-            type="text"
-            placeholder="Search customers..."
-            className="input"
-            style={{ paddingLeft: '2.75rem' }}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          <input type="text" placeholder="Search customers..." className="input" style={{ paddingLeft: '2.75rem' }}
+            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
 
-        {/* Customer Grid */}
+
         <div className="customer-grid">
           {filteredCustomers.map(customer => (
             <Link to={`/customer/${customer.id}`} key={customer.id} className="customer-card">
               <div className="customer-card-actions">
-                <button onClick={(e) => openEdit(customer, e)} className="btn-icon" title="Edit">
-                  <Edit2 size={14} />
-                </button>
-                <button onClick={(e) => handleDelete(customer.id, e)} className="btn-icon danger" title="Delete">
-                  <Trash2 size={14} />
-                </button>
+                <button onClick={(e) => openEdit(customer, e)} className="btn-icon" title="Edit"><Edit2 size={14} /></button>
+                <button onClick={(e) => handleDelete(customer.id, e)} className="btn-icon danger" title="Delete"><Trash2 size={14} /></button>
               </div>
               <div className="customer-avatar">{getInitials(customer.name)}</div>
               <h3 className="font-bold text-lg mb-3" style={{ paddingRight: '4rem' }}>{customer.name}</h3>
@@ -136,21 +140,18 @@ export default function Dashboard({ onLogout }) {
               </div>
             </Link>
           ))}
-
           {filteredCustomers.length === 0 && (
             <div className="card text-center" style={{ gridColumn: '1/-1', padding: '3rem' }}>
               <Milk size={40} style={{ color: 'var(--color-border)', margin: '0 auto 1rem' }} />
               <p className="font-bold text-lg mb-1">No customers yet</p>
               <p className="text-muted text-sm mb-4">Click "Add Customer" to get started</p>
-              <button onClick={openAdd} className="btn btn-primary">
-                <Plus size={16} /> Add First Customer
-              </button>
+              <button onClick={openAdd} className="btn btn-primary"><Plus size={16} /> Add First Customer</button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Add/Edit Customer Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowModal(false)}>
           <div className="modal-box">
@@ -175,14 +176,70 @@ export default function Dashboard({ onLogout }) {
                 </div>
               </div>
               <div className="flex gap-3">
-                <button type="button" onClick={() => setShowModal(false)} className="btn btn-ghost" style={{ flex: 1 }}>
-                  Cancel
-                </button>
+                <button type="button" onClick={() => setShowModal(false)} className="btn btn-ghost" style={{ flex: 1 }}>Cancel</button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
                   {editCustomer ? 'Save Changes' : 'Add Customer'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowSettings(false)}>
+          <div className="modal-box">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="font-black text-2xl mb-0">Settings</h2>
+                <p className="text-muted text-sm">Manage your account</p>
+              </div>
+              <button onClick={() => setShowSettings(false)} className="btn-icon"><X size={16} /></button>
+            </div>
+
+            <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', marginBottom: '1rem' }}>
+              <h3 className="font-bold mb-1">🔐 Change PIN</h3>
+              <p className="text-muted text-sm mb-4">Update your login PIN</p>
+              <form onSubmit={handleChangePin}>
+                {[
+                  { key: 'current', label: 'CURRENT PIN' },
+                  { key: 'newPin', label: 'NEW PIN' },
+                  { key: 'confirm', label: 'CONFIRM NEW PIN' },
+                ].map(({ key, label }) => (
+                  <div className="mb-3 relative" key={key}>
+                    <label className="block text-sm font-bold mb-1" style={{ color: 'var(--color-text-muted)' }}>{label}</label>
+                    <div className="relative">
+                      <input
+                        type={showPins[key] ? 'text' : 'password'}
+                        inputMode="numeric"
+                        maxLength={8}
+                        required
+                        className="input"
+                        style={{ paddingRight: '2.75rem' }}
+                        value={pinForm[key]}
+                        onChange={e => setPinForm({ ...pinForm, [key]: e.target.value })}
+                        placeholder="••••"
+                      />
+                      <button type="button" onClick={() => setShowPins(p => ({ ...p, [key]: !p[key] }))}
+                        style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+                        {showPins[key] ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {pinError && <p className="text-sm mb-2" style={{ color: 'var(--color-danger)' }}>⚠ {pinError}</p>}
+                {pinSuccess && <p className="text-sm mb-2" style={{ color: 'var(--color-success)' }}>✓ {pinSuccess}</p>}
+                <button type="submit" className="btn btn-primary w-full mt-2">Update PIN</button>
+              </form>
+            </div>
+
+            <div style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+              <h3 className="font-bold mb-1">📊 Quick Links</h3>
+              <Link to="/summary" onClick={() => setShowSettings(false)} className="btn btn-ghost w-full mt-2" style={{ justifyContent: 'flex-start' }}>
+                <BarChart2 size={16} /> Monthly Summary Report
+              </Link>
+            </div>
           </div>
         </div>
       )}
