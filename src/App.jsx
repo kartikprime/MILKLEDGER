@@ -5,17 +5,27 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import CustomerDetail from './pages/CustomerDetail';
 import Summary from './pages/Summary';
+import AdminPanel from './pages/AdminPanel';
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [auth, setAuth] = useState(null); // null = loading, false = not auth, {authenticated, role, userId, userName}
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    initDb().then(() => {
-      const auth = localStorage.getItem('milkledger_auth');
-      if (auth === 'true') setIsAuthenticated(true);
-      setIsLoading(false);
-    });
+    // Don't block on initDb — seed users lazily on first login
+    initDb().catch(err => console.warn('initDb background seed:', err));
+    const stored = localStorage.getItem('milkledger_auth');
+    if (stored === 'true') {
+      setAuth({
+        authenticated: true,
+        role: localStorage.getItem('milkledger_role') || 'user',
+        userId: localStorage.getItem('milkledger_user_id') || '',
+        userName: localStorage.getItem('milkledger_user_name') || '',
+      });
+    } else {
+      setAuth(false);
+    }
+    setIsLoading(false);
   }, []);
 
   if (isLoading) {
@@ -29,18 +39,25 @@ function App() {
     );
   }
 
+  const isAuthenticated = auth && auth.authenticated;
+  const isAdmin = isAuthenticated && auth.role === 'admin';
+
   const handleLogout = () => {
     localStorage.removeItem('milkledger_auth');
-    setIsAuthenticated(false);
+    localStorage.removeItem('milkledger_role');
+    localStorage.removeItem('milkledger_user_id');
+    localStorage.removeItem('milkledger_user_name');
+    setAuth(false);
   };
 
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={!isAuthenticated ? <Login setAuth={setIsAuthenticated} /> : <Navigate to="/" />} />
-        <Route path="/" element={isAuthenticated ? <Dashboard onLogout={handleLogout} /> : <Navigate to="/login" />} />
+        <Route path="/login" element={!isAuthenticated ? <Login setAuth={setAuth} /> : <Navigate to={isAdmin ? "/admin" : "/"} />} />
+        <Route path="/" element={isAuthenticated ? <Dashboard onLogout={handleLogout} role={auth.role} /> : <Navigate to="/login" />} />
         <Route path="/customer/:id" element={isAuthenticated ? <CustomerDetail /> : <Navigate to="/login" />} />
         <Route path="/summary" element={isAuthenticated ? <Summary /> : <Navigate to="/login" />} />
+        <Route path="/admin" element={isAdmin ? <AdminPanel onLogout={handleLogout} /> : <Navigate to="/login" />} />
       </Routes>
     </Router>
   );

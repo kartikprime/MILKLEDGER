@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { db } from '../db';
+import { getCustomers, addCustomer, updateCustomer, deleteCustomer, getAllUsers, updateUser, recalcAllEntries } from '../db';
 import { Plus, Search, Trash2, Edit2, Milk, LogOut, ChevronRight, Users, Settings, X, Eye, EyeOff, BarChart2 } from 'lucide-react';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-export default function Dashboard({ onLogout }) {
+
+export default function Dashboard({ onLogout, role }) {
   const [customers, setCustomers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editCustomer, setEditCustomer] = useState(null);
   const [form, setForm] = useState({ name: '', rate: '', fixedFat: '' });
-
-
+  const [saving, setSaving] = useState(false);
 
   // Settings / Change PIN
   const [showSettings, setShowSettings] = useState(false);
@@ -23,8 +23,12 @@ export default function Dashboard({ onLogout }) {
   useEffect(() => { loadCustomers(); }, []);
 
   const loadCustomers = async () => {
-    const all = await db.customers.orderBy('createdAt').reverse().toArray();
-    setCustomers(all);
+    try {
+      const all = await getCustomers();
+      setCustomers(all);
+    } catch (err) {
+      console.error('Error loading customers:', err);
+    }
   };
 
   const filteredCustomers = customers.filter(c =>
@@ -46,39 +50,61 @@ export default function Dashboard({ onLogout }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaving(true);
     const data = {
       name: form.name.trim(),
       rate: parseFloat(form.rate),
       fixedFat: parseFloat(form.fixedFat),
     };
-    if (editCustomer) {
-      await db.customers.update(editCustomer.id, data);
-    } else {
-      await db.customers.add({ ...data, createdAt: Date.now() });
+    try {
+      if (editCustomer) {
+        await updateCustomer(editCustomer.id, data);
+        // Recalculate all entries if rate or fat changed
+        if (data.rate !== editCustomer.rate || data.fixedFat !== editCustomer.fixedFat) {
+          await recalcAllEntries(editCustomer.id, data.rate, data.fixedFat);
+        }
+      } else {
+        await addCustomer(data);
+      }
+      setShowModal(false);
+      loadCustomers();
+    } catch (err) {
+      console.error('Save error:', err);
+      alert('Error saving customer: ' + err.message);
     }
-    setShowModal(false);
-    loadCustomers();
+    setSaving(false);
   };
 
   const handleDelete = async (id, e) => {
     e.preventDefault(); e.stopPropagation();
     if (window.confirm('Delete this customer and all their data?')) {
-      await db.customers.delete(id);
-      await db.milkEntries.where({ customerId: id }).delete();
-      loadCustomers();
+      try {
+        await deleteCustomer(id);
+        loadCustomers();
+      } catch (err) {
+        console.error('Delete error:', err);
+      }
     }
   };
 
   const handleChangePin = async (e) => {
     e.preventDefault();
     setPinError(''); setPinSuccess('');
-    const user = await db.users.where({ pin: pinForm.current }).first();
-    if (!user) return setPinError('Current PIN is incorrect.');
+    const userId = localStorage.getItem('milkledger_user_id');
+    if (!userId) return setPinError('Session error. Please re-login.');
     if (pinForm.newPin.length < 4) return setPinError('New PIN must be at least 4 digits.');
     if (pinForm.newPin !== pinForm.confirm) return setPinError('New PINs do not match.');
-    await db.users.update(user.id, { pin: pinForm.newPin });
-    setPinSuccess('PIN changed successfully!');
-    setPinForm({ current: '', newPin: '', confirm: '' });
+    try {
+      // Verify current PIN by checking all users
+      const { loginWithPin } = await import('../db');
+      const user = await loginWithPin(pinForm.current);
+      if (!user || user.id !== userId) return setPinError('Current PIN is incorrect.');
+      await updateUser(userId, { pin: pinForm.newPin });
+      setPinSuccess('PIN changed successfully!');
+      setPinForm({ current: '', newPin: '', confirm: '' });
+    } catch (err) {
+      setPinError(err.message || 'Error changing PIN.');
+    }
   };
 
   const getInitials = (name) => name.trim().slice(0, 2).toUpperCase();
@@ -116,7 +142,6 @@ export default function Dashboard({ onLogout }) {
           <input type="text" placeholder="Search customers..." className="input" style={{ paddingLeft: '2.75rem' }}
             value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
-
 
         <div className="customer-grid">
           {filteredCustomers.map(customer => (
@@ -177,8 +202,8 @@ export default function Dashboard({ onLogout }) {
               </div>
               <div className="flex gap-3">
                 <button type="button" onClick={() => setShowModal(false)} className="btn btn-ghost" style={{ flex: 1 }}>Cancel</button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-                  {editCustomer ? 'Save Changes' : 'Add Customer'}
+                <button type="submit" disabled={saving} className="btn btn-primary" style={{ flex: 1 }}>
+                  {saving ? 'Saving...' : editCustomer ? 'Save Changes' : 'Add Customer'}
                 </button>
               </div>
             </form>

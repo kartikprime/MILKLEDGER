@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { db, loadEntries } from '../db';
+import { getCustomerById, loadEntries, saveEntry } from '../db';
 import { ArrowLeft, Download, SlidersHorizontal, Milk, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 
@@ -23,37 +23,38 @@ const fmtSign = (val) => {
 
 export default function CustomerDetail() {
   const { id } = useParams();
-  const customerId = parseInt(id);
   const [customer, setCustomer] = useState(null);
   const [cycleId, setCycleId] = useState(1);
   const [entries, setEntries] = useState({});
   const [columns, setColumns] = useState({ inOutWeight: true, finalWeight: true, amount: true });
   const [showColMenu, setShowColMenu] = useState(false);
 
-  // Month / Year
   const now = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1); // 1-12
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
 
   const reportRef = useRef();
 
-  useEffect(() => { loadData(); }, [customerId, cycleId, selectedMonth, selectedYear]);
+  useEffect(() => { loadData(); }, [id, cycleId, selectedMonth, selectedYear]);
 
   const loadData = async () => {
-    const cust = await db.customers.get(customerId);
-    setCustomer(cust);
-    if (cust) {
-      const dbEntries = await loadEntries(cust.id, cycleId, selectedMonth, selectedYear);
-      const map = {};
-      dbEntries.forEach(e => { map[`${e.date}-${e.period}`] = e; });
-      setEntries(map);
+    try {
+      const cust = await getCustomerById(id);
+      setCustomer(cust);
+      if (cust) {
+        const dbEntries = await loadEntries(cust.id, cycleId, selectedMonth, selectedYear);
+        const map = {};
+        dbEntries.forEach(e => { map[`${e.date}-${e.period}`] = e; });
+        setEntries(map);
+      }
+    } catch (err) {
+      console.error('Load error:', err);
     }
   };
 
   const currentDays = useMemo(() => {
     if (cycleId === 1) return Array.from({ length: 10 }, (_, i) => i + 1);
     if (cycleId === 2) return Array.from({ length: 10 }, (_, i) => i + 11);
-    // Cycle 3: days 21 to end of selected month
     const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
     return Array.from({ length: daysInMonth - 20 }, (_, i) => i + 21);
   }, [cycleId, selectedMonth, selectedYear]);
@@ -65,20 +66,22 @@ export default function CustomerDetail() {
       const current = prev[key] || {};
       const updated = { ...current, [field]: value };
       const calcs = calcRow(updated.weight, updated.fat, customer.fixedFat, customer.rate);
-      const finalEntry = { ...updated, ...calcs, customerId, cycleId, date, period, month: selectedMonth, year: selectedYear };
+      const finalEntry = { ...updated, ...calcs, customerId: id, cycleId, date, period, month: selectedMonth, year: selectedYear };
 
       (async () => {
-        if (current.id) {
-          await db.milkEntries.put({ ...finalEntry, id: current.id });
-        } else {
-          const newId = await db.milkEntries.add(finalEntry);
-          setEntries(p => ({ ...p, [key]: { ...finalEntry, id: newId } }));
+        try {
+          const savedId = await saveEntry(finalEntry);
+          if (!current.id) {
+            setEntries(p => ({ ...p, [key]: { ...finalEntry, id: savedId } }));
+          }
+        } catch (err) {
+          console.error('Save error:', err);
         }
       })();
 
       return { ...prev, [key]: finalEntry };
     });
-  }, [customer, customerId, cycleId, selectedMonth, selectedYear]);
+  }, [customer, id, cycleId, selectedMonth, selectedYear]);
 
   const handleDownloadPdf = () => {
     if (!customer) return;
@@ -109,7 +112,6 @@ export default function CustomerDetail() {
     </div>
   );
 
-  // Totals
   let totalWeight = 0, totalInOut = 0, totalFinal = 0, totalAmount = 0;
   currentDays.forEach(day => {
     ['AM', 'PM'].forEach(period => {
@@ -167,15 +169,12 @@ export default function CustomerDetail() {
       </nav>
 
       <div className="page-wrap" style={{ paddingTop: '1.5rem' }}>
-        {/* Month/Year Selector */}
         <div className="flex items-center gap-4 mb-5" style={{ flexWrap: 'wrap' }}>
           <div className="flex items-center gap-2" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: '0.5rem 0.75rem', boxShadow: 'var(--shadow-neu-sm)' }}>
             <button onClick={prevMonth} className="btn-icon" style={{ width: 30, height: 30 }}><ChevronLeft size={15} /></button>
             <span className="font-bold" style={{ minWidth: '130px', textAlign: 'center' }}>{MONTHS[selectedMonth - 1]} {selectedYear}</span>
             <button onClick={nextMonth} className="btn-icon" style={{ width: 30, height: 30 }}><ChevronRight size={15} /></button>
           </div>
-
-          {/* Cycle Tabs */}
           <div className="cycle-tabs">
             {[{ id: 1, label: 'Cycle 1 (1–10)' }, { id: 2, label: 'Cycle 2 (11–20)' }, { id: 3, label: 'Cycle 3 (21–End)' }].map(cy => (
               <button key={cy.id} onClick={() => setCycleId(cy.id)} className={`cycle-tab ${cycleId === cy.id ? 'active' : ''}`}>
@@ -185,7 +184,6 @@ export default function CustomerDetail() {
           </div>
         </div>
 
-        {/* Live Totals */}
         <div className="stat-row mb-4">
           <div className="stat-chip">
             <span className="stat-chip__label">Total Weight</span>
@@ -207,7 +205,6 @@ export default function CustomerDetail() {
           </div>
         </div>
 
-        {/* Report Table */}
         <div ref={reportRef}>
           <div className="mb-4" style={{ textAlign: 'center' }}>
             <h2 className="font-black text-2xl">MILK REPORT — {customer.name}</h2>
@@ -286,7 +283,6 @@ export default function CustomerDetail() {
         </div>
       </div>
 
-      {/* Print styles */}
       <style>{`
         @media print {
           .navbar, .cycle-tabs, .stat-row { display: none !important; }

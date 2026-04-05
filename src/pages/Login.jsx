@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { db } from '../db';
+import { loginWithPin } from '../db';
 import { Milk } from 'lucide-react';
 
 export default function Login({ setAuth }) {
@@ -10,13 +10,22 @@ export default function Login({ setAuth }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const user = await db.users.where({ pin }).first();
-    if (user) {
-      localStorage.setItem('milkledger_auth', 'true');
-      setAuth(true);
-    } else {
-      setError('Incorrect PIN. Try again.');
-      setPin('');
+    setError('');
+    try {
+      const user = await loginWithPin(pin);
+      if (user) {
+        localStorage.setItem('milkledger_auth', 'true');
+        localStorage.setItem('milkledger_role', user.role);
+        localStorage.setItem('milkledger_user_id', user.id);
+        localStorage.setItem('milkledger_user_name', user.name);
+        setAuth({ authenticated: true, role: user.role, userId: user.id, userName: user.name });
+      } else {
+        setError('Incorrect PIN. Try again.');
+        setPin('');
+      }
+    } catch (err) {
+      setError('Connection error. Check your internet.');
+      console.error(err);
     }
     setLoading(false);
   };
@@ -56,9 +65,6 @@ export default function Login({ setAuth }) {
           >
             {loading ? 'Verifying...' : 'Login →'}
           </button>
-          <p className="text-center text-sm mt-4" style={{ color: 'var(--color-text-muted)' }}>
-            Default PIN: <b>1234</b>
-          </p>
         </form>
       </div>
     </div>

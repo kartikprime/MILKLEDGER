@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { db, loadAllCycleEntries } from '../db';
+import { getCustomers, loadAllCycleEntries } from '../db';
 import { ArrowLeft, Milk, ChevronLeft, ChevronRight, Download, BarChart2 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 
@@ -19,31 +19,30 @@ export default function Summary() {
 
   const fetchSummary = async () => {
     setLoading(true);
-    const allCustomers = await db.customers.orderBy('createdAt').toArray();
-    setCustomers(allCustomers);
+    try {
+      const allCustomers = await getCustomers();
+      setCustomers(allCustomers);
 
-    const data = {};
-    for (const cust of allCustomers) {
-      const entries = await loadAllCycleEntries(cust.id, selectedMonth, selectedYear);
-
-      const cycles = { 1: { weight: 0, inOut: 0, final: 0, amount: 0 }, 2: { weight: 0, inOut: 0, final: 0, amount: 0 }, 3: { weight: 0, inOut: 0, final: 0, amount: 0 } };
-
-      entries.forEach(e => {
-        const cy = e.cycleId;
-        if (!cycles[cy]) return;
-        cycles[cy].weight += parseFloat(e.weight) || 0;
-        cycles[cy].inOut += e.inOutWeight || 0;
-        cycles[cy].final += e.finalWeight || 0;
-        cycles[cy].amount += e.amount || 0;
-      });
-
-      const totalWeight = cycles[1].weight + cycles[2].weight + cycles[3].weight;
-      const totalAmount = cycles[1].amount + cycles[2].amount + cycles[3].amount;
-
-      data[cust.id] = { cycles, totalWeight, totalAmount };
+      const data = {};
+      for (const cust of allCustomers) {
+        const entries = await loadAllCycleEntries(cust.id, selectedMonth, selectedYear);
+        const cycles = { 1: { weight: 0, inOut: 0, final: 0, amount: 0 }, 2: { weight: 0, inOut: 0, final: 0, amount: 0 }, 3: { weight: 0, inOut: 0, final: 0, amount: 0 } };
+        entries.forEach(e => {
+          const cy = e.cycleId;
+          if (!cycles[cy]) return;
+          cycles[cy].weight += parseFloat(e.weight) || 0;
+          cycles[cy].inOut += e.inOutWeight || 0;
+          cycles[cy].final += e.finalWeight || 0;
+          cycles[cy].amount += e.amount || 0;
+        });
+        const totalWeight = cycles[1].weight + cycles[2].weight + cycles[3].weight;
+        const totalAmount = cycles[1].amount + cycles[2].amount + cycles[3].amount;
+        data[cust.id] = { cycles, totalWeight, totalAmount };
+      }
+      setSummaryData(data);
+    } catch (err) {
+      console.error('Summary error:', err);
     }
-
-    setSummaryData(data);
     setLoading(false);
   };
 
@@ -51,7 +50,6 @@ export default function Summary() {
     if (selectedMonth === 1) { setSelectedMonth(12); setSelectedYear(y => y - 1); }
     else setSelectedMonth(m => m - 1);
   };
-
   const nextMonth = () => {
     if (selectedMonth === 12) { setSelectedMonth(1); setSelectedYear(y => y + 1); }
     else setSelectedMonth(m => m + 1);
@@ -76,7 +74,6 @@ export default function Summary() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-bg)' }}>
-      {/* Navbar */}
       <nav className="navbar">
         <div className="flex items-center gap-3">
           <Link to="/" className="btn-icon"><ArrowLeft size={16} /></Link>
@@ -91,7 +88,6 @@ export default function Summary() {
       </nav>
 
       <div className="page-wrap" style={{ paddingTop: '1.5rem' }}>
-        {/* Month Navigator */}
         <div className="flex items-center gap-4 mb-6" style={{ flexWrap: 'wrap' }}>
           <div className="flex items-center gap-2" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', padding: '0.5rem 0.75rem', boxShadow: 'var(--shadow-neu-sm)' }}>
             <button onClick={prevMonth} className="btn-icon" style={{ width: 30, height: 30 }}><ChevronLeft size={15} /></button>
@@ -103,7 +99,6 @@ export default function Summary() {
           <p className="text-muted text-sm">Showing totals for all customers this month</p>
         </div>
 
-        {/* Grand Total Chips */}
         <div className="stat-row mb-6">
           <div className="stat-chip">
             <span className="stat-chip__label">Total Customers</span>
@@ -119,7 +114,6 @@ export default function Summary() {
           </div>
         </div>
 
-        {/* Summary Table */}
         <div ref={reportRef}>
           <div className="mb-4 text-center">
             <h2 className="font-black text-2xl">MONTHLY SUMMARY — {MONTHS[selectedMonth - 1]} {selectedYear}</h2>
@@ -153,10 +147,10 @@ export default function Summary() {
                   </tr>
                   <tr>
                     {['Cycle 1', 'Cycle 2', 'Cycle 3'].map((_, i) => (
-                      <>
-                        <th key={`w${i}`} style={{ textAlign: 'right', fontWeight: 600, padding: '0.5rem 0.75rem', borderLeft: i === 0 ? '2px solid var(--color-border)' : undefined }}>Final Wt</th>
-                        <th key={`a${i}`} style={{ textAlign: 'right', fontWeight: 600, padding: '0.5rem 0.75rem', borderRight: i === 2 ? '2px solid var(--color-border)' : undefined }}>Amount</th>
-                      </>
+                      <React.Fragment key={i}>
+                        <th style={{ textAlign: 'right', fontWeight: 600, padding: '0.5rem 0.75rem', borderLeft: i === 0 ? '2px solid var(--color-border)' : undefined }}>Final Wt</th>
+                        <th style={{ textAlign: 'right', fontWeight: 600, padding: '0.5rem 0.75rem', borderRight: i === 2 ? '2px solid var(--color-border)' : undefined }}>Amount</th>
+                      </React.Fragment>
                     ))}
                     <th style={{ textAlign: 'right', fontWeight: 700 }}>Final Wt</th>
                     <th style={{ textAlign: 'right', fontWeight: 700 }}>Amount</th>
@@ -175,32 +169,24 @@ export default function Summary() {
                         </td>
                         <td style={{ textAlign: 'center', color: 'var(--color-success)', fontWeight: 600 }}>₹{cust.rate}</td>
                         <td style={{ textAlign: 'center' }}>{cust.fixedFat}</td>
-
-                        {/* Cycle 1 */}
                         <td style={{ textAlign: 'right', borderLeft: '2px solid var(--color-border)', color: 'var(--color-primary)', fontWeight: 600 }}>
                           {d.cycles[1].final > 0 ? d.cycles[1].final.toFixed(2) : '—'}
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
                           {d.cycles[1].amount > 0 ? `₹ ${d.cycles[1].amount.toFixed(2)}` : '—'}
                         </td>
-
-                        {/* Cycle 2 */}
                         <td style={{ textAlign: 'right', color: 'var(--color-primary)', fontWeight: 600 }}>
                           {d.cycles[2].final > 0 ? d.cycles[2].final.toFixed(2) : '—'}
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
                           {d.cycles[2].amount > 0 ? `₹ ${d.cycles[2].amount.toFixed(2)}` : '—'}
                         </td>
-
-                        {/* Cycle 3 */}
                         <td style={{ textAlign: 'right', borderRight: '2px solid var(--color-border)', color: 'var(--color-primary)', fontWeight: 600 }}>
                           {d.cycles[3].final > 0 ? d.cycles[3].final.toFixed(2) : '—'}
                         </td>
                         <td style={{ textAlign: 'right', borderRight: '2px solid var(--color-border)', fontWeight: 600 }}>
                           {d.cycles[3].amount > 0 ? `₹ ${d.cycles[3].amount.toFixed(2)}` : '—'}
                         </td>
-
-                        {/* Month Totals */}
                         <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)', fontSize: '0.95rem' }}>
                           {d.totalWeight > 0 ? d.totalWeight.toFixed(2) : '—'}
                         </td>
@@ -210,8 +196,6 @@ export default function Summary() {
                       </tr>
                     );
                   })}
-
-                  {/* Grand Total Row */}
                   <tr className="row-total">
                     <td colSpan={3}>GRAND TOTAL</td>
                     <td colSpan={6} style={{ textAlign: 'right' }}></td>
